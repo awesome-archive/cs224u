@@ -7,7 +7,7 @@ from torch_model_base import TorchModelBase
 from utils import progress_bar
 
 __author__ = "Christopher Potts"
-__version__ = "CS224u, Stanford, Spring 2019"
+__version__ = "CS224u, Stanford, Spring 2020"
 
 
 class TorchRNNDataset(torch.utils.data.Dataset):
@@ -132,9 +132,6 @@ class TorchRNNClassifier(TorchModelBase):
     bidirectional : bool
         If True, then the final hidden states from passes in both
         directions are used.
-    hidden_activation : vectorized activation function
-        The non-linear activation function used by the network for the
-        hidden layer. Default `nn.Tanh()`.
     max_iter : int
         Maximum number of training epochs.
     eta : float
@@ -145,6 +142,10 @@ class TorchRNNClassifier(TorchModelBase):
         L2 regularization strength. Default 0 is no regularization.
     device : 'cpu' or 'cuda'
         The default is to use 'cuda' iff available
+    warm_start : bool
+        If True, calling `fit` will resume training with previously
+        defined trainable parameters. If False, calling `fit` will
+        reinitialize all trainable parameters. Default: False.
 
     """
     def __init__(self,
@@ -161,6 +162,10 @@ class TorchRNNClassifier(TorchModelBase):
         self.bidirectional = bidirectional
         super(TorchRNNClassifier, self).__init__(**kwargs)
         self.params += ['embed_dim', 'embedding', 'use_embedding', 'bidirectional']
+        # The base class has this attribute, but this model doesn't,
+        # so we remove it to avoid misleading people:
+        delattr(self, 'hidden_activation')
+        self.params.remove('hidden_activation')
 
     def build_dataset(self, X, y):
         X, seq_lengths = self._prepare_dataset(X)
@@ -215,7 +220,8 @@ class TorchRNNClassifier(TorchModelBase):
             # Infer `embed_dim` from `X` in this case:
             self.embed_dim = X[0][0].shape[0]
         # Graph:
-        self.model = self.build_graph()
+        if not self.warm_start or not hasattr(self, "model"):
+            self.model = self.build_graph()
         self.model.to(self.device)
         self.model.train()
         # Make sure this value is up-to-date; self.`model` might change
@@ -242,6 +248,7 @@ class TorchRNNClassifier(TorchModelBase):
             # Incremental predictions where possible:
             if X_dev is not None and iteration > 0 and iteration % dev_iter == 0:
                 self.dev_predictions[iteration] = self.predict(X_dev)
+                self.model.train()
             self.errors.append(epoch_error)
             progress_bar("Finished epoch {} of {}; error is {}".format(
                 iteration, self.max_iter, epoch_error))
@@ -261,6 +268,7 @@ class TorchRNNClassifier(TorchModelBase):
         """
         self.model.eval()
         with torch.no_grad():
+            self.model.to(self.device)
             X, seq_lengths = self._prepare_dataset(X)
             preds = self.model(X, seq_lengths)
             preds = torch.softmax(preds, dim=1).cpu().numpy()

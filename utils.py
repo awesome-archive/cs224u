@@ -11,7 +11,12 @@ import sys
 import os
 
 __author__ = "Christopher Potts"
-__version__ = "CS224u, Stanford, Spring 2019"
+__version__ = "CS224u, Stanford, Spring 2020"
+
+
+START_SYMBOL = "<s>"
+END_SYMBOL = "</s>"
+UNK_SYMBOL = "$UNK"
 
 
 def glove2dict(src_filename):
@@ -190,7 +195,8 @@ def get_vocab(X, n_words=None):
     return sorted(vocab)
 
 
-def create_pretrained_embedding(lookup, vocab):
+def create_pretrained_embedding(
+        lookup, vocab, required_tokens=('$UNK', "<s>", "</s>")):
     """Create an embedding matrix from a lookup and a specified vocab.
 
     Parameters
@@ -199,6 +205,9 @@ def create_pretrained_embedding(lookup, vocab):
         Must map words to their vector representations.
     vocab : list of str
         Words to create embeddings for.
+    required_tokens : tuple of str
+        Tokens that must have embeddings. If they are not available
+        in the look-up, they will be given random representations.
 
     Returns
     -------
@@ -214,17 +223,11 @@ def create_pretrained_embedding(lookup, vocab):
     """
     vocab = sorted(set(lookup) & set(vocab))
     embedding = np.array([lookup[w] for w in vocab])
-    if '$UNK' not in vocab:
-        vocab.append("$UNK")
-        embedding = np.vstack((embedding, randvec(embedding.shape[1])))
+    for tok in required_tokens:
+        if tok not in vocab:
+            vocab.append(tok)
+            embedding = np.vstack((embedding, randvec(embedding.shape[1])))
     return embedding, vocab
-
-
-def tf_train_progress_logging():
-    logging.getLogger('tensorflow').setLevel(logging.INFO)
-    def info_filter(logrec):
-        return int('loss' in logrec.getMessage().lower())
-    logging.getLogger('tensorflow').addFilter(info_filter)
 
 
 def fix_random_seeds(
@@ -252,6 +255,12 @@ def fix_random_seeds(
 
     Notes
     -----
+    The function checks that PyTorch and TensorFlow are installed
+    where the user asks to set seeds for them. If they are not
+    installed, the seed-setting instruction is ignored. The intention
+    is to make it easier to use this function in environments that lack
+    one or both of these libraries.
+
     Even though the random seeds are explicitly set,
     the behavior may still not be deterministic (especially when a
     GPU is enabled), due to:
@@ -267,8 +276,6 @@ def fix_random_seeds(
     https://stackoverflow.com/questions/30585108/disable-hash-randomization-from-within-python-program
 
     """
-    import torch
-    import tensorflow as tf
     # set system seed
     if set_system:
         np.random.seed(seed)
@@ -276,13 +283,30 @@ def fix_random_seeds(
 
     # set torch seed
     if set_torch:
-        torch.manual_seed(seed)
+        try:
+            import torch
+        except ImportError:
+            pass
+        else:
+            torch.manual_seed(seed)
 
     # set torch cudnn backend
     if set_torch_cudnn:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        try:
+            import torch
+        except ImportError:
+            pass
+        else:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
     # set tf seed
     if set_tensorflow:
-        tf.random.set_random_seed(seed)
+        try:
+            from tensorflow.compat.v1 import set_random_seed as set_tf_seed
+        except ImportError:
+            from tensorflow.random import set_seed as set_tf_seed
+        except ImportError:
+            pass
+        else:
+            set_tf_seed(seed)

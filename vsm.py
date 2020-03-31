@@ -13,7 +13,7 @@ import sys
 import utils
 
 __author__ = "Christopher Potts"
-__version__ = "CS224u, Stanford, Spring 2019"
+__version__ = "CS224u, Stanford, Spring 2020"
 
 
 def euclidean(u, v):
@@ -155,7 +155,31 @@ def get_character_ngrams(w, n):
     return ["".join(w[i: i+n]) for i in range(len(w)-n+1)]
 
 
-def tsne_viz(df, colors=None, output_filename=None, figsize=(40, 50)):
+def character_level_rep(word, cf, n=4):
+    """Get a representation for `word` as the sum of all the
+    representations of `n`grams that it contains, according to `cf`.
+
+    Parameters
+    ----------
+    word : str
+        The word to represent.
+    cf : pd.DataFrame
+        The character-level VSM (e.g, the output of `ngram_vsm`).
+    n : int
+        The n-gram size.
+
+    Returns
+    -------
+    np.array
+
+    """
+    ngrams = get_character_ngrams(word, n)
+    ngrams = [n for n in ngrams if n in cf.index]
+    reps = cf.loc[ngrams].values
+    return reps.sum(axis=0)
+
+
+def tsne_viz(df, colors=None, output_filename=None, figsize=(40, 50), random_state=None):
     """2d plot of `df` using t-SNE, with the points labeled by `df.index`,
     aligned with `colors` (defaults to all black).
 
@@ -175,6 +199,8 @@ def tsne_viz(df, colors=None, output_filename=None, figsize=(40, 50)):
         environment.
     figsize : (int, int) (default: (40, 50))
         Default size of the output in display units.
+    random_state : int or None
+        Optionally set the `random_seed` passed to `PCA` and `TSNE`.
 
     """
     # Colors:
@@ -183,10 +209,10 @@ def tsne_viz(df, colors=None, output_filename=None, figsize=(40, 50)):
         colors = ['black' for i in vocab]
     # Recommended reduction via PCA or similar:
     n_components = 50 if df.shape[1] >= 50 else df.shape[1]
-    dimreduce = PCA(n_components=n_components)
+    dimreduce = PCA(n_components=n_components, random_state=random_state)
     X = dimreduce.fit_transform(df)
     # t-SNE:
-    tsne = TSNE(n_components=2, random_state=0)
+    tsne = TSNE(n_components=2, random_state=random_state)
     tsnemat = tsne.fit_transform(X)
     # Plot values:
     xvals = tsnemat[: , 0]

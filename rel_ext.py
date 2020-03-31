@@ -8,8 +8,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
 
-__author__ = "Bill MacCartney"
-__version__ = "CS224u, Stanford, Spring 2019"
+__author__ = "Bill MacCartney and Christopher Potts"
+__version__ = "CS224u, Stanford, Spring 2020"
 
 
 Example = namedtuple('Example',
@@ -18,6 +18,25 @@ Example = namedtuple('Example',
 
 
 class Corpus(object):
+    """Class for representing and working with the raw text we use
+    as evidence for making relation predictions.
+
+    Parameters
+    ----------
+    src_filename_or_examples : str or list
+        If str, this is assumed to be the full path to the gzip file
+        that contains the examples to use. The method `read_examples`
+        is used to open it in that case. If this is a list, then it
+        should be a list of `Example` instances.
+
+    Attributes
+    ----------
+    examples_by_entities : dict
+        A 2d dictionary mapping `ex.entity_1` to a dict mapping entity
+        `ex.entity_2` to the full `Example` instance `ex`. This is
+        created by the method `_index_examples_by_entities`.
+
+    """
     def __init__(self, src_filename_or_examples):
         if isinstance(src_filename_or_examples, str):
             self.examples = self.read_examples(src_filename_or_examples)
@@ -28,6 +47,21 @@ class Corpus(object):
 
     @staticmethod
     def read_examples(src_filename):
+        """Read `src_filename`, assumed to be a `gzip` file with
+        tab-separated lines that can be turned into `Example`
+        instances.
+
+         Parameters
+        ----------
+        src_filename :  str
+            Assumed to be the full path to the gzip file that contains
+            the examples.
+
+        Returns
+        -------
+        list of Example
+
+        """
         examples = []
         with gzip.open(src_filename, mode='rt', encoding='utf8') as f:
             for line in f:
@@ -36,6 +70,10 @@ class Corpus(object):
         return examples
 
     def _index_examples_by_entities(self):
+        """Fill `examples_by_entities` as a 2d dictionary mapping
+        `ex.entity_1` to a dict mapping entity `ex.entity_2` to the
+        full `Example` instance `ex`.
+        """
         for ex in self.examples:
             if ex.entity_1 not in self.examples_by_entities:
                 self.examples_by_entities[ex.entity_1] = {}
@@ -44,12 +82,18 @@ class Corpus(object):
             self.examples_by_entities[ex.entity_1][ex.entity_2].append(ex)
 
     def get_examples_for_entities(self, e1, e2):
+        """Given two entities `e1` and `e2` as strings, return
+        examples from `self.examples_by_entities`, as a list of
+        `Example` instances."""
         try:
             return self.examples_by_entities[e1][e2]
         except KeyError:
             return []
 
     def show_examples_for_pair(self, e1, e2):
+        """Given two entities `e1` and `e2` as strings, print out their
+        first `Example`, if there is one, otherwise print out a message
+        saying there are no Example instances relating `e1` to `e2`."""
         exs = self.get_examples_for_entities(e1, e2)
         if exs:
             print('The first of {0:,} examples for {1:} and {2:} is:'.format(
@@ -72,6 +116,32 @@ KBTriple = namedtuple('KBTriple', 'rel, sbj, obj')
 
 
 class KB(object):
+    """Class for representing and working with the knowledge base.
+
+    Parameters
+    ----------
+    src_filename_or_triples : str or list
+        If str, this is assumed to be the full path to the gzip file
+        that contains the KB. The method `read_kb_triples` is used to
+        open it in that case. If this is a list, then it should be a
+        list of `KBTriple` instances.
+
+    Attributes
+    ----------
+    all_relations : list
+        Built by `_index_kb_triples_by_relation` as a list of str.
+    all_entity_pairs : list
+        Built by `_collect_all_entity_pairs`, as a sorted list of
+        (subject, object) tuples.
+    kb_triples_by_relation : dict
+        Built by `_index_kb_triples_by_relation`, as a dict mapping
+        relations (str) to `KBTriple` lists.
+    kb_triples_by_entities : dict
+        Built by `_index_kb_triples_by_entities`, as a dict mapping
+        relations subject (str) to dict mapping object (str) to
+        `KBTriple` lists.
+
+    """
     def __init__(self, src_filename_or_triples):
         if isinstance(src_filename_or_triples, str):
             self.kb_triples = self.read_kb_triples(src_filename_or_triples)
@@ -87,6 +157,21 @@ class KB(object):
 
     @staticmethod
     def read_kb_triples(src_filename):
+        """Read `src_filename`, assumed to be a `gzip` file with
+        tab-separated lines that can be turned into `KBTriple`
+        instances.
+
+        Parameters
+        ----------
+        src_filename :  str
+            Assumed to be the full path to the gzip file that contains
+            the triples
+
+        Returns
+        -------
+        list of KBTriple
+
+        """
         kb_triples = []
         with gzip.open(src_filename, mode='rt', encoding='utf8') as f:
             for line in f:
@@ -116,12 +201,16 @@ class KB(object):
             self.kb_triples_by_entities[kbt.sbj][kbt.obj].append(kbt)
 
     def get_triples_for_relation(self, rel):
+        """"Given a relation name (str), return all of the `KBTriple`
+        instances that involve it."""
         try:
             return self.kb_triples_by_relation[rel]
         except KeyError:
             return []
 
     def get_triples_for_entities(self, e1, e2):
+        """Given a pair of entities `e1` and `e2` (both str), return
+        all of the `KBTriple` instances that involve them."""
         try:
             return self.kb_triples_by_entities[e1][e2]
         except KeyError:
@@ -138,6 +227,14 @@ class KB(object):
 
 
 class Dataset(object):
+    """Class for unifying a `Corpus` and a `KB`.
+
+    Parameters
+    ----------
+    corpus : `Corpus`
+    kb : `KB`
+
+    """
     def __init__(self, corpus, kb):
         self.corpus = corpus
         self.kb = kb
@@ -153,7 +250,53 @@ class Dataset(object):
             unrelated_pairs.add((ex.entity_2, ex.entity_1))
         return unrelated_pairs
 
-    def featurize(self, kbts_by_rel, featurizers, vectorizer=None):
+    def featurize(self, kbts_by_rel, featurizers, vectorizer=None, vectorize=True):
+        """Featurize by relation.
+
+        Parameters
+        ----------
+        kbts_by_rel : dict
+            A map from relation (str) to lists of `KBTriples`.
+        featurizers : list of func
+            Each function has to have the signature
+            `kbt, corpus, feature_counter`, where `kbt` is a `KBTriple`,
+            `corpus` is a `Corpus`, and `feature_counter` is a count
+            dictionary.
+        vectorizer : DictVectorizer or None:
+            If None, a new `DictVectorizer` is created and used via
+            `fit`. This is primarily for training. If not None, then
+            `transform` is used. This is primarily for testing.
+        vectorize: bool
+            If True, the feature functions in `featurizers` are presumed
+            to create feature dicts, and a `DictVectorizer` is used. If
+            False, then `featurizers` is required to have exactly one
+            function in it, and that function must return exactly the
+            sort of objects that the models in the model factory take
+            as inputs.
+
+        Returns
+        -------
+        feat_matrices_by_rel, vectorizer
+            where `feat_matrices_by_rel` is a dict mapping relation names
+            to (i) lists of representation if `vectorize=False`, else
+            to `np.array`s, and (ii) and `vectorizer` is a
+            `DictVectorizer` if `vectorize=True`, else None
+
+        """
+        if not vectorize:
+
+            feat_matrices_by_rel = defaultdict(list)
+            if len(featurizers) != 1:
+                raise ValueError(
+                    "If `vectorize=True`, the `featurizers` argument "
+                    "must contain exactly one function.")
+            featurizer = featurizers[0]
+            for rel, kbts in kbts_by_rel.items():
+                for kbt in kbts:
+                    rep = featurizer(kbt, self.corpus)
+                    feat_matrices_by_rel[rel].append(rep)
+            return feat_matrices_by_rel, None
+
         # Create feature counters for all instances (kbts).
         feat_counters_by_rel = defaultdict(list)
         for rel, kbts in kbts_by_rel.items():
@@ -178,10 +321,7 @@ class Dataset(object):
             feat_matrices_by_rel[rel] = vectorizer.transform(feat_counters)
         return feat_matrices_by_rel, vectorizer
 
-    def build_dataset(self,
-            include_positive=True,
-            sampling_rate=0.1,
-            seed=1):
+    def build_dataset(self, include_positive=True, sampling_rate=0.1, seed=1):
         unrelated_pairs = self.find_unrelated_pairs()
         random.seed(seed)
         unrelated_pairs = random.sample(
@@ -310,8 +450,8 @@ def macro_average_results(results):
     return avg_result
 
 
-def evaluate(splits, classifier, test_split='dev', verbose=True):
-    test_kbts_by_rel, true_labels_by_rel = splits[test_split].build_dataset()
+def evaluate(splits, classifier, test_split='dev', sampling_rate=0.1, verbose=True):
+    test_kbts_by_rel, true_labels_by_rel = splits[test_split].build_dataset(sampling_rate=sampling_rate)
     results = {}
     if verbose:
         print_statistics_header()
@@ -333,11 +473,15 @@ def train_models(
         splits,
         featurizers,
         split_name='train',
-        model_factory=lambda: LogisticRegression(fit_intercept=True, solver='liblinear'),
+        model_factory=(lambda: LogisticRegression(
+            fit_intercept=True, solver='liblinear', random_state=42)),
+        sampling_rate=0.1,
+        vectorize=True,
         verbose=True):
     train_dataset = splits[split_name]
-    train_o, train_y = train_dataset.build_dataset()
-    train_X, vectorizer = train_dataset.featurize(train_o, featurizers)
+    train_o, train_y = train_dataset.build_dataset(sampling_rate=sampling_rate)
+    train_X, vectorizer = train_dataset.featurize(
+        train_o, featurizers, vectorize=vectorize)
     models = {}
     for rel in splits['all'].kb.all_relations:
         models[rel] = model_factory()
@@ -346,16 +490,18 @@ def train_models(
         'featurizers': featurizers,
         'vectorizer': vectorizer,
         'models': models,
-        'all_relations': splits['all'].kb.all_relations}
+        'all_relations': splits['all'].kb.all_relations,
+        'vectorize': vectorize}
 
 
-def predict(splits, train_result, split_name='dev'):
+def predict(splits, train_result, split_name='dev', sampling_rate=0.1, vectorize=True):
     assess_dataset = splits[split_name]
-    assess_o, assess_y = assess_dataset.build_dataset()
+    assess_o, assess_y = assess_dataset.build_dataset(sampling_rate=sampling_rate)
     test_X, _ = assess_dataset.featurize(
         assess_o,
         featurizers=train_result['featurizers'],
-        vectorizer=train_result['vectorizer'])
+        vectorizer=train_result['vectorizer'],
+        vectorize=vectorize)
     predictions = {}
     for rel in train_result['all_relations']:
         predictions[rel] = train_result['models'][rel].predict(test_X[rel])
@@ -384,18 +530,26 @@ def experiment(
         featurizers,
         train_split='train',
         test_split='dev',
-        model_factory=lambda: LogisticRegression(fit_intercept=True, solver='liblinear'),
+        model_factory=(lambda: LogisticRegression(
+            fit_intercept=True, solver='liblinear', random_state=42)),
+        train_sampling_rate=0.1,
+        test_sampling_rate=0.1,
+        vectorize=True,
         verbose=True):
     train_result = train_models(
         splits,
         featurizers=featurizers,
         split_name=train_split,
         model_factory=model_factory,
+        sampling_rate=train_sampling_rate,
+        vectorize=vectorize,
         verbose=verbose)
     predictions, test_y = predict(
         splits,
         train_result,
-        split_name=test_split)
+        split_name=test_split,
+        sampling_rate=test_sampling_rate,
+        vectorize=vectorize)
     evaluate_predictions(
         predictions,
         test_y,
@@ -404,7 +558,14 @@ def experiment(
 
 
 def examine_model_weights(train_result, k=3, verbose=True):
-    feature_names = train_result['vectorizer'].get_feature_names()
+    vectorizer = train_result['vectorizer']
+
+    if vectorizer is None:
+        print("Model weights can be examined only if the featurizers "
+              "are based in dicts (i.e., if `vectorize=True`).")
+        return
+
+    feature_names = vectorizer.get_feature_names()
     for rel, model in train_result['models'].items():
         print('Highest and lowest feature weights for relation {}:\n'.format(rel))
         try:
@@ -425,8 +586,10 @@ def find_new_relation_instances(
         featurizers,
         train_split='train',
         test_split='dev',
-        model_factory=lambda: LogisticRegression(fit_intercept=True, solver='liblinear'),
+        model_factory=(lambda: LogisticRegression(
+            fit_intercept=True, solver='liblinear', random_state=42)),
         k=10,
+        vectorize=True,
         verbose=True):
     splits = dataset.build_splits()
     # train models
@@ -435,6 +598,7 @@ def find_new_relation_instances(
         split_name=train_split,
         featurizers=featurizers,
         model_factory=model_factory,
+        vectorize=vectorize,
         verbose=True)
     test_split = splits[test_split]
     neg_o, neg_y = test_split.build_dataset(
@@ -443,7 +607,8 @@ def find_new_relation_instances(
     neg_X, _ = test_split.featurize(
         neg_o,
         featurizers=featurizers,
-        vectorizer=train_result['vectorizer'])
+        vectorizer=train_result['vectorizer'],
+        vectorize=vectorize)
     # Report highest confidence predictions:
     for rel, model in train_result['models'].items():
         print('Highest probability examples for relation {}:\n'.format(rel))
@@ -465,7 +630,8 @@ def bake_off_experiment(train_result, rel_ext_data_home, verbose=True):
     test_X, _ = test_dataset.featurize(
         test_o,
         featurizers=train_result['featurizers'],
-        vectorizer=train_result['vectorizer'])
+        vectorizer=train_result['vectorizer'],
+        vectorize=train_result['vectorize'])
     predictions = {}
     for rel in train_result['all_relations']:
         predictions[rel] = train_result['models'][rel].predict(test_X[rel])
